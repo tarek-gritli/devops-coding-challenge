@@ -1,0 +1,43 @@
+{{- if .Values.mysql.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cm.mysql" . }}
+spec:
+  clusterIP: None
+  selector: { app.kubernetes.io/name: mysql, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports: [{ port: 3306 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "cm.mysql" . }}
+spec:
+  serviceName: {{ include "cm.mysql" . }}
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: mysql, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: mysql, app.kubernetes.io/instance: {{ .Release.Name }} }
+    spec:
+      containers:
+        - name: mysql
+          image: {{ .Values.mysql.image }}
+          ports: [{ containerPort: 3306 }]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "cm.name" . }}-db, key: password } }
+            - name: MYSQL_DATABASE
+              value: {{ .Values.mysql.database }}
+          readinessProbe:
+            exec: { command: ["sh", "-c", "mysqladmin ping -h 127.0.0.1 -p$MYSQL_ROOT_PASSWORD"] }
+            periodSeconds: 5
+            failureThreshold: 30
+          volumeMounts: [{ name: data, mountPath: /var/lib/mysql }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: {{ .Values.mysql.storage }} } }
+{{- end }}

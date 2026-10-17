@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cm.name" . }}
+  labels: {{- include "cm.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "cm.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "cm.labels" . | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z {{ include "cm.host" . }} {{ .Values.externalDatabase.port }}; do sleep 2; done"]
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://{{ include "cm.host" . }}:{{ .Values.externalDatabase.port }}/{{ include "cm.db" . }}"
+            - name: SPRING_DATASOURCE_WRITER_URL
+              value: "jdbc:mysql://{{ include "cm.host" . }}:{{ .Values.externalDatabase.port }}/{{ include "cm.db" . }}"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom: { secretKeyRef: { name: {{ include "cm.name" . }}-db, key: username } }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "cm.name" . }}-db, key: password } }
+          startupProbe:
+            httpGet: { path: /actuator/health, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /actuator/health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health, port: http }
+            periodSeconds: 20
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
