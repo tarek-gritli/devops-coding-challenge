@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+.vscode
+target
+terraform
+charts
+docker-compose.yml
+Dockerfile
+README.md
