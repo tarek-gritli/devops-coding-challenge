@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jdk AS build
+FROM eclipse-temurin:17-jdk-resolute AS build
 WORKDIR /app
 
 COPY mvnw pom.xml ./
@@ -8,7 +8,7 @@ RUN ./mvnw -B -q dependency:go-offline
 COPY src ./src
 RUN ./mvnw -B -q package -DskipTests
 
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jre-resolute
 RUN useradd --system --uid 10001 app
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
