@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     services:
       mysql:
         image: mysql:8.4
@@ -24,8 +24,8 @@ jobs:
           --health-interval 5s
           --health-retries 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: 17
@@ -34,19 +34,19 @@ jobs:
       - run: ./mvnw -B verify
 
   helm:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - run: helm lint charts/crewmeister
       # Also render with monitoring on, so the optional templates are checked too
       - run: helm template ci charts/crewmeister --set serviceMonitor.enabled=true > /dev/null
 
   terraform:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
       - run: terraform fmt -check -recursive
         working-directory: terraform
       - run: terraform init -backend=false
@@ -55,12 +55,16 @@ jobs:
         working-directory: terraform/envs/kind
 
   scan-repo:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Secrets + misconfigurations in the Dockerfile, Helm chart and Terraform.
       # pom.xml is skipped: Trivy would resolve it against Maven Central, which rate-limits (429).
       # Dependencies are covered by the image scan instead.
+      # Report-only: scan once to JSON, convert it to a table and to SARIF, never fail the pipeline.
       - name: Trivy repo scan
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -71,26 +75,37 @@ jobs:
           severity: HIGH,CRITICAL
           skip-files: pom.xml
           version: v0.76.0
-          output: trivy-repo.txt
+          format: json
+          output: trivy-repo.json
       - name: Show repo scan results
+        continue-on-error: true
         run: |
-          { echo '### Trivy repo scan'; echo '```'; cat trivy-repo.txt 2>/dev/null || echo 'scan produced no output'; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          trivy convert --format table --output trivy-repo.txt trivy-repo.json
+          trivy convert --format sarif --output trivy-repo.sarif trivy-repo.json
+          { echo '### Trivy repo scan'; echo '```'; cat trivy-repo.txt; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload to the Security tab
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: trivy-repo.sarif
+          category: trivy-repo
 
   image:
     needs: [test, helm, terraform]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
-      packages: write
+      packages: write # push to GHCR
+      security-events: write # upload SARIF to the Security tab
     env:
       IMAGE: ghcr.io/${{ github.repository }}
       # Pull requests only build the image, pushes to main also publish it
       PUBLISH: ${{ github.event_name == 'push' }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Build into the local Docker daemon first so the image can be scanned before it is published
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           load: true
@@ -108,17 +123,27 @@ jobs:
           severity: HIGH,CRITICAL
           timeout: 20m
           version: v0.76.0
-          output: trivy-image.txt
+          format: json
+          output: trivy-image.json
       - name: Show image scan results
+        continue-on-error: true
         run: |
-          { echo '### Trivy image scan'; echo '```'; cat trivy-image.txt 2>/dev/null || echo 'scan produced no output'; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: docker/login-action@v4
+          trivy convert --format table --output trivy-image.txt trivy-image.json
+          trivy convert --format sarif --output trivy-image.sarif trivy-image.json
+          { echo '### Trivy image scan'; echo '```'; cat trivy-image.txt; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload to the Security tab
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         if: env.PUBLISH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         if: env.PUBLISH == 'true'
         with:
           context: .

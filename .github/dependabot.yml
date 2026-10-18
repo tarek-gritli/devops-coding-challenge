@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Keeps the SHA-pinned actions in the workflow up to date
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  # Maven dependencies, including the Spring Boot parent
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+  # Terraform providers
+  - package-ecosystem: terraform
+    directory: /terraform/envs/kind
+    schedule:
+      interval: weekly
