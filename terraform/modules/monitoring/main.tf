@@ -10,10 +10,10 @@ resource "helm_release" "monitoring" {
   timeout          = 600
 
   values = [yamlencode({
-    # No Alertmanager: nowhere to send notifications locally, alerts show in the Prometheus UI
+    # No Alertmanager: nowhere to send notifications, alerts show in the Prometheus UI
     alertmanager = { enabled = false }
 
-    # kind does not expose these control-plane endpoints, scraping them only creates false alerts
+    # Control-plane endpoints are not reachable on kind or on managed clusters, scraping them only creates false alerts
     kubeEtcd              = { enabled = false }
     kubeScheduler         = { enabled = false }
     kubeControllerManager = { enabled = false }
@@ -27,14 +27,12 @@ resource "helm_release" "monitoring" {
       }
     }
 
-    grafana = {
+    grafana = var.grafana_host == "" ? {} : {
       ingress = {
         enabled          = true
         ingressClassName = "traefik"
-        hosts            = ["grafana.localhost"]
+        hosts            = [var.grafana_host]
       }
     }
   })]
-
-  depends_on = [helm_release.traefik]
 }

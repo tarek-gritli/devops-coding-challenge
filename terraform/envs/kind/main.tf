@@ -73,7 +73,15 @@ resource "helm_release" "traefik" {
   depends_on = [kind_cluster.this]
 }
 
-# 4. The application
+# 4. Monitoring: Prometheus and Grafana
+module "monitoring" {
+  source       = "../../modules/monitoring"
+  grafana_host = "grafana.localhost"
+
+  depends_on = [helm_release.traefik]
+}
+
+# 5. The application
 module "app" {
   source                  = "../../modules/app"
   image_repository        = local.image
@@ -83,5 +91,5 @@ module "app" {
   service_monitor_enabled = true
 
   # the monitoring stack installs the ServiceMonitor CRD the chart needs
-  depends_on = [terraform_data.image, helm_release.traefik, helm_release.monitoring]
+  depends_on = [terraform_data.image, helm_release.traefik, module.monitoring]
 }
