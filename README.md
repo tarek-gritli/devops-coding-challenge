@@ -163,6 +163,24 @@ curl "http://$IP/user?id=1"
 - **Stop the charges** with `terraform destroy` in the same folder. It removes both resource groups
   (and the MySQL data with them); `NetworkWatcherRG` stays.
 
+What an AKS run looks like: the apply finishing, the two resource groups, the nodes and pods, the app
+answering on the load balancer's public IP, Cilium and the policies, Grafana through a port-forward, and
+the cleanup after `terraform destroy`.
+
+![terraform apply finishing on AKS](docs/screenshots/aks/01-apply-complete.png)
+
+![The two resource groups](docs/screenshots/aks/02-resource-groups.png)
+
+![Nodes and pods on AKS](docs/screenshots/aks/03-nodes-pods.png)
+
+![The API on the public IP](docs/screenshots/aks/04-api-public-ip.png)
+
+![Cilium, the network policies and the API restriction](docs/screenshots/aks/05-cilium-netpol.png)
+
+![Grafana dashboard on AKS](docs/screenshots/aks/06-grafana.png)
+
+![terraform destroy finishing](docs/screenshots/aks/07-destroyed.png)
+
 ## Using the API
 
 | Method | Path | Description |
@@ -329,7 +347,7 @@ always reads it from a Kubernetes Secret. (You can set `mysql.rootPassword` or
   enabled) and the monitoring namespace (when the ServiceMonitor is enabled) to reach the app on 8080, and
   DNS. Pods cannot reach the internet or other namespaces. Checked on kind: the app and MySQL work and
   restart normally, while an unlabelled pod, a pod from another namespace, and outbound connections from
-  the app and MySQL pods are blocked. The AKS cluster is created with Cilium, which enforces them.
+  the app and MySQL pods are blocked. The same checks pass on AKS, where Cilium enforces them.
 - Secrets live in Kubernetes Secrets. Terraform state files and the generated kubeconfig are git-ignored
   because they contain cluster credentials.
 - **Trivy runs in CI in report-only mode:** findings appear in the job summary and in the repository's
