@@ -4,7 +4,8 @@ A Spring Boot user API (Java 17, MySQL, Flyway) packaged with Docker, deployed w
 through Terraform onto a local Kubernetes cluster ([kind](https://kind.sigs.k8s.io/)), monitored with
 Prometheus and Grafana, and built, tested and scanned by GitHub Actions.
 
-Everything runs locally with free, public tools. No cloud account is needed.
+Everything runs locally with free, public tools, no cloud account needed. An optional environment for
+Azure Kubernetes Service (AKS) reuses the same chart and Terraform modules.
 
 ## Contents
 
@@ -13,14 +14,14 @@ Everything runs locally with free, public tools. No cloud account is needed.
 - [Quick start](#quick-start)
   - [Option 1: Docker Compose](#option-1-docker-compose-fastest)
   - [Option 2: Kubernetes with Terraform](#option-2-kubernetes-with-terraform-the-full-setup)
+  - [Option 3: Azure Kubernetes Service](#option-3-azure-kubernetes-service-optional)
 - [Using the API](#using-the-api)
 - [Monitoring](#monitoring)
 - [CI pipeline](#ci-pipeline)
+- [Deploying from the pipeline](#deploying-from-the-pipeline-design-not-implemented)
 - [Helm chart](#helm-chart)
 - [Repository layout](#repository-layout)
-- [Design decisions](#design-decisions)
 - [Security](#security)
-- [What was tested, and known limitations](#what-was-tested-and-known-limitations)
 
 ## What was asked and where it is
 
@@ -29,6 +30,7 @@ Everything runs locally with free, public tools. No cloud account is needed.
 | Dockerfile | [Dockerfile](Dockerfile), [.dockerignore](.dockerignore) |
 | Helm chart | [charts/crewmeister](charts/crewmeister) |
 | Terraform to interact with the Kubernetes cluster | [terraform/](terraform) (module + kind environment) |
+| Any cloud provider (optional) | [terraform/envs/aks](terraform/envs/aks): Azure Kubernetes Service |
 | Runs on a local machine | Docker Compose, and a local kind cluster created by Terraform |
 | Plus: CI pipeline in GitHub | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
 | Plus: monitoring | kube-prometheus-stack, a Grafana dashboard and alert rules (chart + [monitoring.tf](terraform/envs/kind/monitoring.tf)) |
@@ -104,6 +106,46 @@ curl 'http://crewmeister.localhost/user?id=1'
 
 Remove everything with `terraform destroy` (run it in the same folder).
 
+### Option 3: Azure Kubernetes Service (optional)
+
+The same chart and modules on a real cluster. **This needs an Azure subscription and uses credits
+while it runs.** Prerequisites: the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli),
+Terraform 1.5+ and `kubectl`.
+
+```bash
+az login
+az account show --query id -o tsv          # your subscription ID
+cd terraform/envs/aks
+cp terraform.tfvars.example terraform.tfvars   # put the subscription ID in it (the file is git-ignored)
+terraform init
+terraform apply
+```
+
+When it finishes, use the two commands from the outputs:
+
+```bash
+az aks get-credentials --resource-group crewmeister-rg --name crewmeister-aks
+IP=$(kubectl -n traefik get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl "http://$IP/user?id=1"
+```
+
+- **Grafana and Prometheus are not public.** Reach them with a port-forward, for example
+  `kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80`, then <http://localhost:3000>
+  (user `admin`, password from the `kubectl ... monitoring-grafana` secret command in [Monitoring](#monitoring)).
+- **The image** comes from the public GitHub Container Registry package published by CI (`latest`).
+  Pass `-var image_tag=<git sha>` to deploy a specific build.
+- **Free trials restrict regions and VM sizes.** The defaults are `spaincentral` and `Standard_D2s_v4`.
+  If the apply fails with "VM size ... is not allowed in your subscription", pick a size from the list in
+  the error and a region where your subscription has quota: `terraform apply -var vm_size=<size> -var location=<region>`.
+  `az vm list-usage -l <region>` shows your quota.
+- **Resource providers:** azurerm 5.x no longer registers them automatically, so the provider block
+  asks for `Microsoft.ContainerService`, `Compute`, `Network` and `Storage`.
+- **Two resource groups appear.** `crewmeister-rg` holds the cluster resource. AKS creates a second one,
+  `MC_crewmeister-rg_crewmeister-aks_<region>`, for the nodes, virtual network, load balancer, public IPs
+  and the MySQL disk. Azure also creates `NetworkWatcherRG` for the region, which is free.
+- **Stop the charges** with `terraform destroy` in the same folder. It removes both resource groups
+  (and the MySQL data with them); `NetworkWatcherRG` stays.
+
 ## Using the API
 
 | Method | Path | Description |
@@ -174,6 +216,32 @@ docker stop tmp-mysql
 
 `mvnw` uses `JAVA_HOME` before the `java` on your `PATH`, so make sure it points to a JDK, not a JRE.
 
+## Deploying from the pipeline (design, not implemented)
+
+CI builds, tests, scans and publishes the image to GHCR, then stops. Deploying to AKS is a manual
+`terraform apply`. This is how automating it would work. I did not build it: it needs account-specific
+setup, the task does not ask for it, and a demo cluster that is destroyed between uses would make an
+always-on deploy job fail.
+
+**What a deploy job needs**
+
+1. **Remote Terraform state.** The state is a local file today, which a CI runner cannot see. It would
+   move to an Azure Storage account created once, outside Terraform.
+2. **Azure login without stored secrets.** GitHub Actions authenticates with OIDC federation: an Azure AD
+   app registration with a federated credential tied to this repository and a GitHub Environment, holding a
+   role scoped to `crewmeister-rg`. No passwords are stored in GitHub.
+3. **A trigger and a gate.** `terraform plan` on pull requests, and `terraform apply` on `main` behind a
+   GitHub Environment that requires approval, or a manually started `workflow_dispatch`. A
+   manual trigger fits a cluster that is not always running.
+4. **An immutable image tag.** Deploy the git SHA that CI just built (`-var image_tag=<sha>`), not `latest`,
+   so every deploy is traceable and repeatable.
+
+**One owner for the app release.** Terraform installs the application's Helm release, so the pipeline
+should deploy through Terraform (`terraform apply -var image_tag=<sha>`). If a job ran `helm upgrade`
+directly, Terraform would see a changed release and revert it on its next apply. The alternative is to
+let the Helm CLI own the app release, which means removing the app module from `envs/aks` and splitting
+infrastructure from application.
+
 ## Helm chart
 
 [charts/crewmeister](charts/crewmeister) can also be installed without Terraform on any cluster:
@@ -206,7 +274,9 @@ always reads it from a Kubernetes Secret. (You can set `mysql.rootPassword` or
 ├── charts/crewmeister/              # Helm chart (app, MySQL, ingress, dashboard, alert rules)
 ├── terraform/
 │   ├── modules/app/                 # reusable: installs the chart on any cluster
-│   └── envs/kind/                   # local environment: cluster, image, Traefik, monitoring, app
+│   ├── modules/monitoring/          # reusable: Prometheus and Grafana
+│   ├── envs/kind/                   # local environment: cluster, image, Traefik, monitoring, app
+│   └── envs/aks/                    # Azure environment: resource group, AKS cluster, Traefik, monitoring, app
 ├── .github/                         # CI workflow and Dependabot config
 └── src/                             # the Spring Boot application (unchanged apart from pom.xml)
 ```
