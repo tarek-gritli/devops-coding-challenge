@@ -256,7 +256,7 @@ docker stop tmp-mysql
 ## Deploying from the pipeline (design, not implemented)
 
 CI builds, tests, scans and publishes the image to GHCR, then stops. Deploying to AKS is a manual
-`terraform apply`. This is how automating it would work. I did not build it: it needs account-specific
+`terraform apply`. This is how automating it would work. It is not part of this submission: it needs account-specific
 setup, the task does not ask for it, and a demo cluster that is destroyed between uses would make an
 always-on deploy job fail.
 
@@ -298,6 +298,8 @@ Main values (see [values.yaml](charts/crewmeister/values.yaml) for all):
 | `externalDatabase.*` | empty | Host, port, database and credentials when `mysql.enabled=false` |
 | `ingress.enabled`, `.className`, `.host` | `false` | Expose `/user` through an ingress controller |
 | `serviceMonitor.enabled` | `false` | Also creates the ServiceMonitor, Grafana dashboard and alert rules (needs the Prometheus Operator CRDs) |
+| `networkPolicy.enabled` | `true` | NetworkPolicies: default deny, app to MySQL, ingress controller and Prometheus to the app, and DNS. Needs a CNI that enforces policies. |
+| `networkPolicy.restrictEgress` | `true` | Also deny egress, except DNS and app to database |
 
 By default the database password is generated on first install and kept across upgrades. The app
 always reads it from a Kubernetes Secret. (You can set `mysql.rootPassword` or
@@ -322,6 +324,12 @@ always reads it from a Kubernetes Secret. (You can set `mysql.rootPassword` or
 
 - Containers run as non-root with a read-only root filesystem, no privilege escalation and all
   capabilities dropped (app and MySQL). Writable scratch space is limited to `emptyDir` volumes.
+- **Network policies** deny all traffic to and from the pods in the app's namespace by default, then
+  allow only: the app pods to reach MySQL on 3306, the ingress controller's namespace (when the ingress is
+  enabled) and the monitoring namespace (when the ServiceMonitor is enabled) to reach the app on 8080, and
+  DNS. Pods cannot reach the internet or other namespaces. Checked on kind: the app and MySQL work and
+  restart normally, while an unlabelled pod, a pod from another namespace, and outbound connections from
+  the app and MySQL pods are blocked. The AKS cluster is created with Cilium, which enforces them.
 - Secrets live in Kubernetes Secrets. Terraform state files and the generated kubeconfig are git-ignored
   because they contain cluster credentials.
 - **Trivy runs in CI in report-only mode:** findings appear in the job summary and in the repository's

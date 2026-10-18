@@ -1,0 +1,85 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cm.name" . }}-default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress{{ if .Values.networkPolicy.restrictEgress }}, Egress{{ end }}]
+{{- if .Values.mysql.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cm.mysql" . }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: mysql, app.kubernetes.io/instance: {{ .Release.Name }} }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {{- include "cm.labels" . | nindent 14 }}
+      ports:
+        - { port: 3306, protocol: TCP }
+{{- end }}
+{{- if or .Values.ingress.enabled .Values.serviceMonitor.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cm.name" . }}
+spec:
+  podSelector:
+    matchLabels: {{- include "cm.labels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- if .Values.ingress.enabled }}
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }} } }
+        {{- end }}
+        {{- if .Values.serviceMonitor.enabled }}
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }} } }
+        {{- end }}
+      ports:
+        - { port: 8080, protocol: TCP }
+{{- end }}
+{{- if .Values.networkPolicy.restrictEgress }}
+---
+# DNS for every pod in the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cm.name" . }}-egress-dns
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+---
+# The app may only reach its database
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cm.name" . }}-egress-db
+spec:
+  podSelector:
+    matchLabels: {{- include "cm.labels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- if .Values.mysql.enabled }}
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: mysql, app.kubernetes.io/instance: {{ .Release.Name }} }
+        {{- else }}
+        - ipBlock: { cidr: 0.0.0.0/0 } # external database: its address is not known as a CIDR
+        {{- end }}
+      ports:
+        - { port: {{ if .Values.mysql.enabled }}3306{{ else }}{{ .Values.externalDatabase.port }}{{ end }}, protocol: TCP }
+{{- end }}
+{{- end }}

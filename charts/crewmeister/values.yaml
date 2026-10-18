@@ -39,3 +39,12 @@ ingress:
 serviceMonitor:
   enabled: false
   interval: 15s
+
+# NetworkPolicies: deny everything by default, allow app -> MySQL, the ingress controller and
+# Prometheus -> app, and DNS. Only enforced if the cluster's CNI supports NetworkPolicy.
+networkPolicy:
+  enabled: true
+  # Also deny egress, except DNS and app -> database
+  restrictEgress: true
+  ingressNamespace: traefik
+  monitoringNamespace: monitoring
