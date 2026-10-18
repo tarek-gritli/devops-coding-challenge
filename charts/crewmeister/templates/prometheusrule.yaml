@@ -1,0 +1,26 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "cm.name" . }}
+  labels: {{- include "cm.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: crewmeister
+      rules:
+        - alert: CrewmeisterDown
+          # absent() also fires when the app is scaled to zero and the target disappears
+          expr: absent(up{job="{{ include "cm.name" . }}", namespace="{{ .Release.Namespace }}"} == 1)
+          for: 2m
+          labels: { severity: critical }
+          annotations:
+            summary: No healthy Crewmeister instance is being scraped
+        - alert: CrewmeisterHigh5xxRate
+          expr: |
+            sum(rate(http_server_requests_seconds_count{job="{{ include "cm.name" . }}", status=~"5.."}[5m]))
+              / sum(rate(http_server_requests_seconds_count{job="{{ include "cm.name" . }}"}[5m])) > 0.05
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: More than 5% of requests are failing with 5xx
+{{- end }}

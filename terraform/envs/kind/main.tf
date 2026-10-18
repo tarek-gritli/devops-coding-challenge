@@ -75,11 +75,13 @@ resource "helm_release" "traefik" {
 
 # 4. The application
 module "app" {
-  source           = "../../modules/app"
-  image_repository = local.image
-  image_tag        = substr(local.src_hash, 0, 8)
-  ingress_enabled  = true
-  ingress_host     = var.app_host
+  source                  = "../../modules/app"
+  image_repository        = local.image
+  image_tag               = substr(local.src_hash, 0, 8)
+  ingress_enabled         = true
+  ingress_host            = var.app_host
+  service_monitor_enabled = true
 
-  depends_on = [terraform_data.image, helm_release.traefik]
+  # the monitoring stack installs the ServiceMonitor CRD the chart needs
+  depends_on = [terraform_data.image, helm_release.traefik, helm_release.monitoring]
 }

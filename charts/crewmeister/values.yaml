@@ -34,6 +34,7 @@ ingress:
   className: nginx
   host: crewmeister.local
 
+# Also installs the Grafana dashboard and alert rules.
 # Requires the Prometheus Operator CRDs (kube-prometheus-stack)
 serviceMonitor:
   enabled: false
