@@ -246,7 +246,7 @@ The same alert in Prometheus:
 | `helm` | `helm lint` and a render with monitoring enabled |
 | `terraform` | `fmt -check`, `init -backend=false`, `validate` |
 | `scan-repo` | Trivy: secrets and misconfigurations in the Dockerfile, chart and Terraform. Findings go to the Security and quality tab. |
-| `image` | Builds the image, scans it with Trivy (findings go to the Security and quality tab), and on pushes to `main` publishes it to GHCR as `ghcr.io/<owner>/<repo>:<git sha>` and `:latest` |
+| `image` | Builds the image, scans it with Trivy (findings go to the Security and quality tab), saves a CycloneDX SBOM as a workflow artifact, and on pushes to `main` publishes it to GHCR as `ghcr.io/<owner>/<repo>:<git sha>` and `:latest` |
 
 Trivy findings are listed under the repository's
 [code scanning alerts](https://github.com/tarek-gritli/devops-coding-challenge/security/code-scanning)
@@ -354,6 +354,9 @@ always reads it from a Kubernetes Secret. (You can set `mysql.rootPassword` or
   Security and quality tab (code scanning, categories `trivy-repo` and `trivy-image`), and never fail the pipeline.
   An alert stays open until the vulnerable dependency is upgraded out of the image, or until it is
   dismissed in the Security and quality tab with a reason.
+- **An SBOM** (software bill of materials, CycloneDX JSON) is generated for every built image from the same
+  Trivy scan and kept as the `sbom-cyclonedx` artifact of the workflow run. It lists the operating system
+  packages and the Java libraries inside the image, with versions.
 - **Every GitHub Action is pinned to a commit SHA**, not a tag, with the release in a comment. Tags
   can be moved: in March 2026 the version tags of Trivy's action were force-pushed to malware
   (GHSA-69fq-xp46-6x23). Trivy itself is pinned to an explicit version too. **Dependabot**

@@ -126,12 +126,14 @@ jobs:
           timeout: 20m
           version: v0.76.0
           format: json
+          list-all-pkgs: true # the SBOM is built from this scan
           output: trivy-image.json
       - name: Show image scan results
         continue-on-error: true
         run: |
           trivy convert --format table --output trivy-image.txt trivy-image.json
           trivy convert --format sarif --output trivy-image.sarif trivy-image.json
+          trivy convert --format cyclonedx --output sbom.cdx.json trivy-image.json
           { echo '### Trivy image scan'; echo '```'; cat trivy-image.txt; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload to the Security tab
         continue-on-error: true
@@ -139,6 +141,13 @@ jobs:
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
+      - name: Upload the SBOM
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: warn
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         if: env.PUBLISH == 'true'
         with:
