@@ -80,6 +80,8 @@ docker compose up --build
 
 The app is on <http://localhost:8080>. Stop with `docker compose down -v`.
 
+![Docker Compose running and answering](docs/screenshots/local/01-compose.png)
+
 ### Option 2: Kubernetes with Terraform (the full setup)
 
 **Prerequisites:** Docker, [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation),
@@ -94,8 +96,10 @@ terraform apply
 ```
 
 This creates the cluster `crewmeister`, builds and loads the image, and installs Traefik, the
-monitoring stack and the app. **The first run takes roughly 10 to 15 minutes**, mostly pulling the
-monitoring images. Later runs only change what differs.
+monitoring stack and the app. **The first run typically takes 4 to 10 minutes**, mostly pulling the
+monitoring images, depending on your connection. Later runs only change what differs.
+
+![terraform apply finishing](docs/screenshots/local/02-terraform-apply.png)
 
 When it finishes:
 
@@ -103,6 +107,10 @@ When it finishes:
 curl 'http://crewmeister.localhost/user?id=1'
 # Greetings from Crewmeister, Alice!
 ```
+
+Everything should be `Running` with no restarts (`kubectl get pods -A`):
+
+![All pods running](docs/screenshots/local/03-pods.png)
 
 Remove everything with `terraform destroy` (run it in the same folder).
 
@@ -162,6 +170,8 @@ On Kubernetes the ingress only routes `/user`. The Actuator endpoints (`/actuato
 `/actuator/prometheus`) are deliberately **not** reachable from outside the cluster; use
 `kubectl -n crewmeister port-forward svc/crewmeister-crewmeister 8080:80` to reach them.
 
+![GET, POST, read back, and the actuator blocked at the ingress](docs/screenshots/local/04-api.png)
+
 ## Monitoring
 
 - **Grafana:** <http://grafana.localhost>, user `admin`. The password is generated per install:
@@ -187,6 +197,18 @@ On Kubernetes the ingress only routes `/user`. The Actuator endpoints (`/actuato
 Alertmanager is disabled: with nowhere local to send notifications, alerts are visible in
 Prometheus and Grafana only.
 
+The dashboard with the app healthy:
+
+![Grafana dashboard, healthy](docs/screenshots/local/05-grafana-dashboard.png)
+
+After scaling the app to zero, `CrewmeisterDown` fires and the "Alerts firing" panel turns red:
+
+![Grafana dashboard with CrewmeisterDown firing](docs/screenshots/local/06-alert-firing.png)
+
+The same alert in Prometheus:
+
+![Prometheus alerts page](docs/screenshots/local/07-prometheus-alerts.png)
+
 ## CI pipeline
 
 [.github/workflows/ci.yml](.github/workflows/ci.yml) runs on pull requests and on pushes to `main`:
@@ -196,12 +218,18 @@ Prometheus and Grafana only.
 | `test` | `./mvnw verify` against a MySQL 8.4 service container |
 | `helm` | `helm lint` and a render with monitoring enabled |
 | `terraform` | `fmt -check`, `init -backend=false`, `validate` |
-| `scan-repo` | Trivy: secrets and misconfigurations in the Dockerfile, chart and Terraform. Findings go to the Security tab. |
-| `image` | Builds the image, scans it with Trivy (findings go to the Security tab), and on pushes to `main` publishes it to GHCR as `ghcr.io/<owner>/<repo>:<git sha>` and `:latest` |
+| `scan-repo` | Trivy: secrets and misconfigurations in the Dockerfile, chart and Terraform. Findings go to the Security and quality tab. |
+| `image` | Builds the image, scans it with Trivy (findings go to the Security and quality tab), and on pushes to `main` publishes it to GHCR as `ghcr.io/<owner>/<repo>:<git sha>` and `:latest` |
 
 Trivy findings are listed under the repository's
 [code scanning alerts](https://github.com/tarek-gritli/devops-coding-challenge/security/code-scanning)
 (tool Trivy, categories `trivy-repo` and `trivy-image`) and in each run's job summary.
+
+A green run, and the code scanning list:
+
+![GitHub Actions run, all jobs green](docs/screenshots/local/08-ci-run.png)
+
+![Code scanning alerts from Trivy](docs/screenshots/local/09-security-tab.png)
 
 The `image` job only starts after `test`, `helm` and `terraform` pass. CI stops at publishing a tested
 image: the target cluster is local, so there is nothing for CI to deploy to.
@@ -288,9 +316,9 @@ always reads it from a Kubernetes Secret. (You can set `mysql.rootPassword` or
 - Secrets live in Kubernetes Secrets. Terraform state files and the generated kubeconfig are git-ignored
   because they contain cluster credentials.
 - **Trivy runs in CI in report-only mode:** findings appear in the job summary and in the repository's
-  Security tab (code scanning, categories `trivy-repo` and `trivy-image`), and never fail the pipeline.
+  Security and quality tab (code scanning, categories `trivy-repo` and `trivy-image`), and never fail the pipeline.
   An alert stays open until the vulnerable dependency is upgraded out of the image, or until it is
-  dismissed in the Security tab with a reason.
+  dismissed in the Security and quality tab with a reason.
 - **Every GitHub Action is pinned to a commit SHA**, not a tag, with the release in a comment. Tags
   can be moved: in March 2026 the version tags of Trivy's action were force-pushed to malware
   (GHSA-69fq-xp46-6x23). Trivy itself is pinned to an explicit version too. **Dependabot**
@@ -299,7 +327,10 @@ always reads it from a Kubernetes Secret. (You can set `mysql.rootPassword` or
   version and Ubuntu release are chosen deliberately, and Trivy reports its vulnerabilities.
 - CI runs on `ubuntu-26.04` instead of `ubuntu-latest`, the same Ubuntu release as the image's base
   (`eclipse-temurin:17-*-resolute`), so neither can change without a commit.
-- At the last scan, the chart and Dockerfile had **no HIGH/CRITICAL findings**. The image had
+- At the last scan, the chart and Dockerfile had **no HIGH/CRITICAL findings**. The AKS Terraform had
+  **3**: no API server IP restriction (critical), no network policy, and RBAC, which is a false alarm
+  because Trivy reads the Terraform source and does not see the provider's default of `true`. They are
+  reported, not fixed here. The image had
   **41 HIGH/CRITICAL**: 38 in the application's Java dependencies (Spring Boot 3.3.5, which pins
   Tomcat 10.1.31, Spring 6.1.14 and `jackson-databind` 2.15.0) and 3 in a Go binary in the base image.
   These versions come with the supplied project and Spring Boot 3.3.x is out of open-source support.
