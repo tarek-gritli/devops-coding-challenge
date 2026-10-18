@@ -39,3 +39,9 @@ variable "image_tag" {
   default     = "latest"
   description = "Image published by CI. Pin a git SHA tag for a reproducible deployment."
 }
+
+variable "api_server_authorized_ip_ranges" {
+  type        = list(string)
+  default     = null
+  description = "CIDRs allowed to reach the Kubernetes API server. Default (null): the public IPv4 address of the machine running Terraform, as a /32. If that address changes, run terraform apply again."
+}

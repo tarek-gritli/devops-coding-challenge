@@ -148,6 +148,15 @@ curl "http://$IP/user?id=1"
   `az vm list-usage -l <region>` shows your quota.
 - **Resource providers:** azurerm 5.x no longer registers them automatically, so the provider block
   asks for `Microsoft.ContainerService`, `Compute`, `Network` and `Storage`.
+- **The Kubernetes API is restricted to your IP.** By default Terraform looks up your public IPv4
+  address (through api.ipify.org) and allows only that `/32` to reach the API server. To use other
+  ranges: `terraform apply -var 'api_server_authorized_ip_ranges=["203.0.113.0/24"]'`. If your IP
+  changes later, `terraform apply` can no longer reach the cluster to refresh the Helm releases, so
+  update the range first with
+  `az aks update --resource-group crewmeister-rg --name crewmeister-aks --api-server-authorized-ip-ranges <new-ip>/32`
+  and then apply again.
+- **Network:** Azure CNI Overlay with the Cilium data plane, which also enforces network policies. No
+  `NetworkPolicy` objects are defined, so all pod traffic is still allowed.
 - **Two resource groups appear.** `crewmeister-rg` holds the cluster resource. AKS creates a second one,
   `MC_crewmeister-rg_crewmeister-aks_<region>`, for the nodes, virtual network, load balancer, public IPs
   and the MySQL disk. Azure also creates `NetworkWatcherRG` for the region, which is free.
@@ -327,10 +336,11 @@ always reads it from a Kubernetes Secret. (You can set `mysql.rootPassword` or
   version and Ubuntu release are chosen deliberately, and Trivy reports its vulnerabilities.
 - CI runs on `ubuntu-26.04` instead of `ubuntu-latest`, the same Ubuntu release as the image's base
   (`eclipse-temurin:17-*-resolute`), so neither can change without a commit.
-- At the last scan, the chart and Dockerfile had **no HIGH/CRITICAL findings**. The AKS Terraform had
-  **3**: no API server IP restriction (critical), no network policy, and RBAC, which is a false alarm
-  because Trivy reads the Terraform source and does not see the provider's default of `true`. They are
-  reported, not fixed here. The image had
+- At the last local scan, the chart, Dockerfile and Terraform had **no HIGH/CRITICAL findings**. The AKS
+  cluster had three before being fixed in `envs/aks`: no API server IP restriction, no network policy,
+  and RBAC, which Trivy reported only because it does not see the provider's default of `true`. Lower
+  severity AKS findings (Azure Monitor logging, private cluster, Azure Policy add-on, disk encryption set)
+  are not addressed and not shown by CI, which only lists HIGH and CRITICAL. The image had
   **41 HIGH/CRITICAL**: 38 in the application's Java dependencies (Spring Boot 3.3.5, which pins
   Tomcat 10.1.31, Spring 6.1.14 and `jackson-databind` 2.15.0) and 3 in a Go binary in the base image.
   These versions come with the supplied project and Spring Boot 3.3.x is out of open-source support.

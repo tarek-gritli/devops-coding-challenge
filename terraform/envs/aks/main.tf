@@ -11,6 +11,17 @@ provider "azurerm" {
   ]
 }
 
+# Only this machine's public IP may reach the Kubernetes API by default.
+# Terraform's Helm provider needs API access during the apply, so the range must include the caller.
+data "http" "my_ip" {
+  count = var.api_server_authorized_ip_ranges == null ? 1 : 0
+  url   = "https://api.ipify.org"
+}
+
+locals {
+  api_authorized_ip_ranges = var.api_server_authorized_ip_ranges != null ? var.api_server_authorized_ip_ranges : ["${chomp(data.http.my_ip[0].response_body)}/32"]
+}
+
 # 1. Cluster. Free control-plane tier, only the nodes cost money.
 resource "azurerm_resource_group" "this" {
   name     = var.resource_group_name
@@ -23,6 +34,22 @@ resource "azurerm_kubernetes_cluster" "this" {
   resource_group_name = azurerm_resource_group.this.name
   dns_prefix          = var.cluster_name
   sku_tier            = "Free"
+
+  # RBAC is the default, stated explicitly so it is visible (and to static scanners)
+  role_based_access_control_enabled = true
+
+  api_server_access_profile {
+    authorized_ip_ranges = local.api_authorized_ip_ranges
+  }
+
+  # Azure CNI Overlay with the Cilium data plane, which also provides network policy enforcement.
+  # No NetworkPolicy objects are defined, so all pod traffic is still allowed.
+  network_profile {
+    network_plugin      = "azure"
+    network_plugin_mode = "overlay"
+    network_data_plane  = "cilium"
+    network_policy      = "cilium"
+  }
 
   default_node_pool {
     name       = "default"
