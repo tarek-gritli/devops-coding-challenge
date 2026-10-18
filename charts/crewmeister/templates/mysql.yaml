@@ -21,6 +21,11 @@ spec:
     metadata:
       labels: { app.kubernetes.io/name: mysql, app.kubernetes.io/instance: {{ .Release.Name }} }
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
       containers:
         - name: mysql
           image: {{ .Values.mysql.image }}
@@ -34,7 +39,18 @@ spec:
             exec: { command: ["sh", "-c", "mysqladmin ping -h 127.0.0.1 -p$MYSQL_ROOT_PASSWORD"] }
             periodSeconds: 5
             failureThreshold: 30
-          volumeMounts: [{ name: data, mountPath: /var/lib/mysql }]
+          # the root filesystem is read-only, mysqld needs writable /tmp and /var/run/mysqld
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/mysql }
+            - { name: tmp, mountPath: /tmp }
+            - { name: run, mountPath: /var/run/mysqld }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: run, emptyDir: {} }
   volumeClaimTemplates:
     - metadata: { name: data }
       spec:

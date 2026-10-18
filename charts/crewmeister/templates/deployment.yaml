@@ -20,6 +20,8 @@ spec:
         - name: wait-for-db
           image: busybox:1.36
           command: ["sh", "-c", "until nc -z {{ include "cm.host" . }} {{ .Values.externalDatabase.port }}; do sleep 2; done"]
+          securityContext:
+            readOnlyRootFilesystem: true
       containers:
         - name: app
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -49,4 +51,10 @@ spec:
           resources: {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
+          # the root filesystem is read-only, Tomcat needs a writable /tmp
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: {} }
