@@ -49,10 +49,12 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
       - run: terraform fmt -check -recursive
         working-directory: terraform
-      - run: terraform init -backend=false
-        working-directory: terraform/envs/kind
-      - run: terraform validate
-        working-directory: terraform/envs/kind
+      - name: Validate every environment
+        run: |
+          for env in terraform/envs/*/; do
+            terraform -chdir="$env" init -backend=false
+            terraform -chdir="$env" validate
+          done
 
   scan-repo:
     runs-on: ubuntu-26.04
